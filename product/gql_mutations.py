@@ -8,6 +8,7 @@ from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import ValidationError, PermissionDenied
 from graphene.types.decimal import Decimal
 from location.models import Location
+from program import models as program_models
 from .services import (
     set_product_items,
     set_product_relative_distribution,
@@ -60,6 +61,7 @@ def create_or_update_product(user, data):
     ceiling_type = data.pop("ceiling_type", None)
     deductibles = extract_deductibles(data)
     ceilings = extract_ceilings(data)
+    data["program"] = program_models.Program.objects.filter(idProgram=data["program"]).first()
 
     # Validate start cycles
     for start_cycle_key in [
@@ -181,6 +183,7 @@ class ProductInputType(OpenIMISMutation.Input):
     max_installments = graphene.Int()
     recurrence = graphene.Int()
     location_uuid = graphene.UUID()
+    program = graphene.Int(required=True)
     conversion_product_uuid = graphene.UUID()
     acc_code_remuneration = graphene.String()
     acc_code_premiums = graphene.String()
