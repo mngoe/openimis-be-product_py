@@ -25,6 +25,8 @@ from .enums import (
     LimitTypeEnum,
     PriceOriginEnum,
 )
+import datetime
+from program import models as program_models
 
 
 class ProductRelativePricesGQLType(graphene.ObjectType):
@@ -266,6 +268,10 @@ class Query(graphene.ObjectType):
             raise PermissionDenied(_("unauthorized"))
 
         qs = Product.objects
+        user_id = info.context.user._u.id
+        today = datetime.datetime.now()
+        programs = program_models.Program.objects.filter(user__id=user_id).filter(
+            validityDate__lte=today)
         if not show_history:
             qs = qs.filter(*filter_validity(**kwargs))
 
@@ -279,6 +285,7 @@ class Query(graphene.ObjectType):
                 Q(location__in=Location.objects.parents(location))
                 | Q(location__id=location)
             )
+        qs = qs.filter(program_id__in=programs)
 
         return gql_optimizer.query(qs, info)
 
