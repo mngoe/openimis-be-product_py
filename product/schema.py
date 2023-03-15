@@ -271,7 +271,8 @@ class Query(graphene.ObjectType):
         user_id = info.context.user._u.id
         today = datetime.datetime.now()
         programs = program_models.Program.objects.filter(user__id=user_id).filter(
-            validityDate__lte=today)
+                validityDateFrom__lte=today).filter(
+                Q(validityDateTo__isnull=True) | Q(validityDateTo__gte=today))
         if not show_history:
             qs = qs.filter(*filter_validity(**kwargs))
 
