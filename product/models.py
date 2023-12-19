@@ -36,6 +36,12 @@ class Product(VersionedModel):
     max_installments = models.IntegerField(
         db_column="MaxInstallments", blank=True, null=True
     )
+    age_minimal = models.IntegerField(
+        db_column="Min Age", blank=True, null=True
+    )
+    age_maximal = models.IntegerField(
+        db_column="Max Age", blank=True, null=True
+    )
     threshold = models.IntegerField(db_column="Threshold", blank=True, null=True)
     recurrence = models.IntegerField(db_column="Recurrence", blank=True, null=True)
     premium_adult = models.DecimalField(
