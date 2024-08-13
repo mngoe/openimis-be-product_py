@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('product', '0005_auto_20230214_1025'),
+        ('product', '0006_add_ceiling_type_column'),
     ]
 
     operations = [
