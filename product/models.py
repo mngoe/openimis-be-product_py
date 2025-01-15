@@ -36,6 +36,12 @@ class Product(VersionedModel):
     max_installments = models.IntegerField(
         db_column="MaxInstallments", blank=True, null=True
     )
+    age_minimal = models.IntegerField(
+        db_column="Min Age", blank=True, null=True
+    )
+    age_maximal = models.IntegerField(
+        db_column="Max Age", blank=True, null=True
+    )
     threshold = models.IntegerField(db_column="Threshold", blank=True, null=True)
     recurrence = models.IntegerField(db_column="Recurrence", blank=True, null=True)
     premium_adult = models.DecimalField(
@@ -291,6 +297,19 @@ class Product(VersionedModel):
         blank=True,
         null=True,
     )
+
+    ceiling_type = models.CharField(
+        max_length=1,
+        db_column="CeilingType",
+        blank=True,
+        null=True,
+        choices=(
+            ("I", gettext_lazy("INSUREE")),
+            ("T", gettext_lazy("TREATMENT")),
+            ("P", gettext_lazy("POLICY")),
+        ),
+    )
+
     max_no_antenatal = models.IntegerField(
         db_column="MaxNoAntenatal", blank=True, null=True
     )
@@ -390,36 +409,13 @@ class Product(VersionedModel):
         blank=True,
         null=True,
     )
-
     program = models.ForeignKey(
         program_models.Program, 
         models.DO_NOTHING, 
         db_column='program',
         related_name="product_program", 
-        null=True)
-
-    @property
-    def ceiling_type(self):
-        if (
-            self.ded_treatment
-            or self.ded_op_treatment
-            or self.ded_ip_treatment
-            or self.max_treatment
-            or self.max_ip_treatment
-            or self.max_op_treatment
-        ):
-            return "T"
-        elif (
-            self.ded_policy
-            or self.ded_op_policy
-            or self.ded_ip_policy
-            or self.max_policy
-            or self.max_ip_policy
-            or self.max_op_policy
-        ):
-            return "P"
-        else:
-            return "I"
+        null=True
+    )
 
     def has_cycle(self):
         return (
@@ -574,7 +570,7 @@ class ProductItem(VersionedModel, ProductItemOrService):
     objects = ProductItemOrServiceManager()
 
     class Meta:
-        managed = False
+        managed = True
         db_table = "tblProductItems"
 
 
@@ -661,7 +657,7 @@ class ProductService(VersionedModel, ProductItemOrService):
     objects = ProductItemOrServiceManager()
 
     class Meta:
-        managed = False
+        managed = True
         db_table = "tblProductServices"
 
 

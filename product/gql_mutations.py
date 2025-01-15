@@ -1,3 +1,4 @@
+import datetime
 from gettext import gettext as _
 from operator import or_
 from dataclasses import dataclass
@@ -10,14 +11,14 @@ from graphene.types.decimal import Decimal
 from location.models import Location
 from program import models as program_models
 from .services import (
-    set_product_items,
+    set_product_details,
     set_product_relative_distribution,
     set_product_deductible_and_ceiling,
     save_product_history,
-    set_product_services,
+    check_unique_code_product
 )
 from .apps import ProductConfig
-from .models import Product, ProductMutation
+from .models import Product, ProductItem, ProductService, ProductMutation, LIMIT_CHOICES
 from .enums import (
     CareTypeEnum,
     CeilingExclusionEnum,
@@ -45,11 +46,12 @@ def extract_deductibles(data):
 
 def extract_ceilings(data):
     return DeductibleOrCeilingValue(
-        data.pop("ceiling", 0), data.pop("ceiling_ip", 0), data.pop("ceiling_op", 0)
+        data.pop("ceiling", 0), data.pop(
+            "ceiling_ip", 0), data.pop("ceiling_op", 0)
     )
 
 
-def create_or_update_product(user, data):
+def create_or_update_product(user, data, is_duplicate=False):
     client_mutation_id = data.pop("client_mutation_id", None)
     data.pop("client_mutation_label", None)
     product_uuid = data.pop("uuid", None)
@@ -58,10 +60,18 @@ def create_or_update_product(user, data):
     relative_prices = data.pop("relative_prices", None)
     items = data.pop("items", None)
     services = data.pop("services", None)
-    ceiling_type = data.pop("ceiling_type", None)
+    ceiling_type = data.get("ceiling_type", None)
     deductibles = extract_deductibles(data)
     ceilings = extract_ceilings(data)
     data["program"] = program_models.Program.objects.filter(idProgram=data["program"]).first()
+    hist_id=None
+    incoming_code = data.get('code')
+    current_product = Product.objects.filter(uuid=product_uuid).first()
+    current_code = current_product.code if current_product else None
+
+    if current_code != incoming_code:
+        if check_unique_code_product(incoming_code):
+            raise ValidationError(_("mutation.product_code_duplicated"))
 
     # Validate start cycles
     for start_cycle_key in [
@@ -79,12 +89,43 @@ def create_or_update_product(user, data):
                 f"'{data[start_cycle_key]}' is not a correct value for product.start_cycle"
             )
 
+    if items:
+        for item in items:
+            values = [(item['limitation_type'], item['limit_adult']),
+                      (item['limitation_type_e'], item['limit_adult_e']),
+                      (item['limitation_type_r'], item['limit_adult_r']),
+                      (item['limitation_type'], item['limit_child']),
+                      (item['limitation_type_e'], item['limit_child_e']),
+                      (item['limitation_type_r'], item['limit_child_r'])]
+            # checking if value can be interpreted as percentage
+            if not all([True if float(i[1]) >= 0 else False for i in values]):
+                raise ValueError("Item O,R,E limits must be positive.")
+            if not all([True if float(i[1]) <= 100 else False for i in values if i[0] != LIMIT_CHOICES[0][0]]):
+                raise ValueError(
+                    "Item O,R,E co-insurance limits must be smaller or equal to 100.")
+
+    if services:
+        for service in services:
+            values = [(service['limitation_type'], service['limit_adult']),
+                      (service['limitation_type_e'], service['limit_adult_e']),
+                      (service['limitation_type_r'], service['limit_adult_r']),
+                      (service['limitation_type'], service['limit_child']),
+                      (service['limitation_type_e'], service['limit_child_e']),
+                      (service['limitation_type_r'], service['limit_child_r'])]
+            # checking if value can be interpreted as percentage
+            if not all([True if float(i[1]) >= 0 else False for i in values]):
+                raise ValueError("Service O,R,E limits must be positive.")
+            if not all([True if float(i[1]) <= 100 else False for i in values if i[0] != LIMIT_CHOICES[0][0]]):
+                raise ValueError(
+                    "Service O,R,E co-insurance limits must be smaller or equal to 100.")
+
     if data["date_from"] > data["date_to"]:
         raise ValueError("date_from must be before date_to")
-
     if product_uuid:
         product = Product.objects.get(uuid=product_uuid)
-        save_product_history(product)
+        if product.validity_to:
+            raise ValidationError("Cannot update historical data.")
+        hist_id = save_product_history(product,items,services)
         for (key, value) in data.items():
             setattr(product, key, value)
     else:
@@ -94,20 +135,17 @@ def create_or_update_product(user, data):
         product.location = Location.objects.get(uuid=location_uuid)
 
     if conversion_product_uuid is not None:
-        product.conversion_product = Product.objects.get(uuid=conversion_product_uuid)
-
-    set_product_relative_distribution(user, product, relative_prices)
+        product.conversion_product = Product.objects.get(
+            uuid=conversion_product_uuid)
+    set_product_details(product.items, 'Item', hist_id, items, user) 
+    set_product_details(product.services,'Service', hist_id, services, user) 
+    set_product_relative_distribution(product, hist_id, relative_prices,user)
 
     set_product_deductible_and_ceiling(
         product, ceiling_type, deductibles, ceilings, user
     )
 
-    if items is not None:
-        set_product_items(product, items, user)
-
-    if services is not None:
-        set_product_services(product, services, user)
-
+    product.validity_from = datetime.datetime.now()
     product.save()
 
     if client_mutation_id:
@@ -115,10 +153,14 @@ def create_or_update_product(user, data):
             user, client_mutation_id=client_mutation_id, product=product
         )
 
+    if is_duplicate:
+        return product
+
 
 class RelativePricesInput(graphene.InputObjectType):
     care_type = graphene.Field(CareTypeEnum)
-    periods = graphene.NonNull(graphene.List(graphene.NonNull(graphene.Decimal)))
+    periods = graphene.NonNull(graphene.List(
+        graphene.NonNull(graphene.Decimal)))
 
 
 class CreateOrUpdateProductMutation(OpenIMISMutation):
@@ -209,7 +251,8 @@ class ProductInputType(OpenIMISMutation.Input):
     registration_lump_sum = graphene.Decimal(
         max_digits=18, decimal_places=2, required=False
     )
-    registration_fee = graphene.Decimal(max_digits=18, decimal_places=2, required=False)
+    registration_fee = graphene.Decimal(
+        max_digits=18, decimal_places=2, required=False)
     general_assembly_lump_sum = graphene.Decimal(
         max_digits=18, decimal_places=2, required=False
     )
@@ -281,12 +324,15 @@ class ProductInputType(OpenIMISMutation.Input):
     max_amount_consultation = graphene.Decimal(max_digits=18, decimal_places=2)
     max_amount_surgery = graphene.Decimal(max_digits=18, decimal_places=2)
     max_amount_delivery = graphene.Decimal(max_digits=18, decimal_places=2)
-    max_amount_hospitalization = graphene.Decimal(max_digits=18, decimal_places=2)
+    max_amount_hospitalization = graphene.Decimal(
+        max_digits=18, decimal_places=2)
     max_amount_antenatal = graphene.Decimal(max_digits=18, decimal_places=2)
 
     relative_prices = graphene.List(RelativePricesInput)
     items = graphene.List(graphene.NonNull(ProductItemInput))
     services = graphene.List(graphene.NonNull(ProductServiceInput))
+    age_minimal = graphene.Int()
+    age_maximal = graphene.Int()
 
 
 class CreateProductMutation(CreateOrUpdateProductMutation):
@@ -304,6 +350,12 @@ class CreateProductMutation(CreateOrUpdateProductMutation):
                 user,
                 **data,
             )
+        except ValueError as exc:
+            return [
+                {
+                    "message": str(exc)
+                }
+            ]
         except Exception as exc:
             return [
                 {
@@ -313,12 +365,79 @@ class CreateProductMutation(CreateOrUpdateProductMutation):
             ]
 
 
+class DuplicateProductMutation(OpenIMISMutation):
+    _mutation_module = "product"
+    _mutation_class = "DuplicateProductMutation"
+
+    class Input(ProductInputType):
+        code = graphene.String(required=True)
+        uuid = graphene.UUID(required=False)
+
+    @classmethod
+    def async_mutate(cls, user, **data):
+        try:
+            cls.do_mutate(
+                ProductConfig.gql_mutation_products_add_perms,
+                user,
+                **data,
+            )
+        except ValueError as exc:
+            return [
+                {
+                    "message": str(exc)
+                }
+            ]
+        except Exception as exc:
+            return [
+                {
+                    "message": _("product.mutation.failed_to_duplicate_product"),
+                    "detail": str(exc),
+                }
+            ]
+
+    @classmethod
+    def do_mutate(cls, perms, user, **data):
+        if type(user) is AnonymousUser or not user.id:
+            raise ValidationError(_("mutation.authentication_required"))
+        if not user.has_perms(perms):
+            raise PermissionDenied(_("unauthorized"))
+        current_uuid = data.pop("uuid") if "uuid" in data else None
+
+        data["audit_user_id"] = user.id_for_audit
+
+        duplicate_items = True #if 'items' not in data else False
+        duplicate_services = True #if 'services' not in data else False
+
+        new_product = create_or_update_product(user, data, is_duplicate=True)
+
+        if duplicate_items:
+            new_product_items = ProductItem.objects.filter(product=Product.objects.get(uuid=current_uuid,
+                                                           validity_to__isnull=True))
+            for item in new_product_items:
+                # create a new instance by setting pk = None
+                item.pk = None
+                item.product = new_product
+                item.save()
+
+        if duplicate_services:
+            new_product_services = ProductService.objects.filter(product=Product.objects.get(uuid=current_uuid,
+                                                                 validity_to__isnull=True))
+            for service in new_product_services:
+                # create a new instance by setting pk = None
+                service.pk = None
+                service.product = new_product
+                service.save()
+
+        return new_product
+
+
 class UpdateProductMutation(CreateOrUpdateProductMutation):
     _mutation_module = "product"
     _mutation_class = "UpdateProductMutation"
 
     class Input(ProductInputType):
         uuid = graphene.UUID(required=True)
+        code = graphene.String(required=True)
 
     @classmethod
     def async_mutate(cls, user, **data):
