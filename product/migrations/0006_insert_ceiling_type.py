@@ -73,5 +73,5 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(insert_ceiling_types, migrations.RunPython.noop),
+        # migrations.RunPython(insert_ceiling_types, migrations.RunPython.noop),
     ]
