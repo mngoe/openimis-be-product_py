@@ -7,7 +7,7 @@ from product.models import Product
 logger = logging.getLogger(__name__)
 
 
-def insert_treatment_ceiling_type():
+def insert_treatment_ceiling_type(apps):
     products = Product.objects.all().filter(
         validity_to__isnull=True,
         ceiling_type__isnull=True,
@@ -18,10 +18,10 @@ def insert_treatment_ceiling_type():
         max_ip_treatment__isnull=False,
         max_op_treatment__isnull=False
     )
-    insert_values(products, "ceiling_type", "T")
+    insert_values(apps, products, "ceiling_type", "T")
 
 
-def insert_policy_ceiling_type():
+def insert_policy_ceiling_type(apps):
     products = Product.objects.all().filter(
         validity_to__isnull=True,
         ceiling_type__isnull=True,
@@ -32,15 +32,15 @@ def insert_policy_ceiling_type():
         max_ip_policy__isnull=False,
         max_op_policy__isnull=False
     )
-    insert_values(products, "ceiling_type", "P")
+    insert_values(apps, products, "ceiling_type", "P")
 
 
-def insert_insuree_ceiling_type():
+def insert_insuree_ceiling_type(apps):
     products = Product.objects.all().filter(
         validity_to__isnull=True,
         ceiling_type__isnull=True
     )
-    insert_values(products, "ceiling_type", "I")
+    insert_values(apps, products, "ceiling_type", "I")
 
 
 def insert_values(apps, list_of_objects: list, field: str, value: str):
@@ -61,9 +61,9 @@ def insert_ceiling_types(apps, schema_editor):
     Insert ceiling types based on ded/max values.
     Default value is set to "Insuree"
     """
-    insert_treatment_ceiling_type()
-    insert_policy_ceiling_type()
-    insert_insuree_ceiling_type()
+    insert_treatment_ceiling_type(apps)
+    insert_policy_ceiling_type(apps)
+    insert_insuree_ceiling_type(apps)
 
 
 class Migration(migrations.Migration):
