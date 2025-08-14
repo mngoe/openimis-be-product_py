@@ -3,7 +3,6 @@ import logging
 
 from django.db import migrations, models
 from product.models import Product
-from program.models import Program
 
 logger = logging.getLogger(__name__)
 
@@ -44,8 +43,9 @@ def insert_insuree_ceiling_type():
     insert_values(products, "ceiling_type", "I")
 
 
-def insert_values(list_of_objects: list, field: str, value: str):
-    # Get or create a defaut program
+def insert_values(apps, list_of_objects: list, field: str, value: str):
+    Program = apps.get_model('program', 'Program')
+    # Get or create a default program
     default_program = Program.objects.first()
     if not default_program:
         default_program = Program.objects.create(code="DEFAULT", nameProgram="Default Program")
