@@ -6,7 +6,7 @@ from product.gql_mutations import create_or_update_product
 from product.models import Product
 import re
 _TEST_USER_NAME = "test_insuree_import"
-_TEST_USER_PWD = "test_insuree_import"
+_TEST_USER_PWD = "Test_insuree_import_1"
 _TEST_DATA_USER = {
     "username": _TEST_USER_NAME,
     "last_name": _TEST_USER_NAME,
@@ -81,7 +81,8 @@ DATA_MUTATION={
             "code":"FCTA0041",
             "locationUuid":None,
             "clientMutationLabel":"Update product Fixed Cycle Cover Tahida",
-            "clientMutationId":"a0b8d581-fa59-461a-9e29-a3d42200e13b"
+            "clientMutationId":"a0b8d581-fa59-461a-9e29-a3d42200e13b",
+            "program":1
             }
         }
     }
@@ -189,7 +190,8 @@ DATA_MUTATION_UPDATE={
             "code":"FCTA0041",
             "locationUuid":None,
             "clientMutationLabel":"Update product Fixed Cycle Cover Tahida",
-            "clientMutationId":"a0b8d581-fa59-461a-9e29-a3d42200e13b"
+            "clientMutationId":"a0b8d581-fa59-461a-9e29-a3d42200e13b",
+            "program":1
             }
         }
     }
