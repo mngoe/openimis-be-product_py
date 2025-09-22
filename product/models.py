@@ -1,5 +1,4 @@
 import uuid
-from django.db.models.deletion import CASCADE
 from django.utils.translation import gettext_lazy
 from django.db import models
 from program import models as program_models
@@ -410,10 +409,10 @@ class Product(VersionedModel):
         null=True,
     )
     program = models.ForeignKey(
-        program_models.Program, 
-        models.DO_NOTHING, 
+        program_models.Program,
+        models.DO_NOTHING,
         db_column='program',
-        related_name="product_program", 
+        related_name="product_program",
         null=True
     )
 
