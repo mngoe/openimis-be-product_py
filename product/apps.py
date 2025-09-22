@@ -48,7 +48,6 @@ class ProductConfig(AppConfig):
         cfg = ModuleConfiguration.get_or_default(MODULE_NAME, DEFAULT_CFG)
         self.__load_config(cfg)
 
-
     def set_dataloaders(self, dataloaders):
         from .dataloaders import ProductLoader
 
