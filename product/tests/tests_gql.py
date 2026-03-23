@@ -1,31 +1,17 @@
-import base64
 from unittest import mock
-from django.test import TestCase
-
-import graphene
-import datetime
-from product.models import Product
-from core.models import TechnicalUser
 from core.models.openimis_graphql_test_case import openIMISGraphQLTestCase
 from core.test_helpers import create_test_interactive_user
-from policyholder.tests.helpers import *
-from contribution_plan.tests.helpers import create_test_contribution_plan, \
-    create_test_contribution_plan_bundle, create_test_contribution_plan_bundle_details
-from product import schema as product_schema
-from graphene import Schema
-from graphene.test import Client
-from graphene_django.utils.testing import GraphQLTestCase
-from django.conf import settings
-import json
-import uuid
 from graphql_jwt.shortcuts import get_token
+from product.test_helpers import create_test_product
+from location.test_helpers import create_test_location
+from program.test_helpers import create_test_program
 
 
 class MutationTestProduct(openIMISGraphQLTestCase):
-    # This is required by some version of graphene but is never used. It should be set to the schema but the import
+    # This is required by some version of graphene but is never used.
+    # It should be set to the schema but the import
     # is shown as an error in the IDE, so leaving it as True.
     admin_user = None
-
 
     class BaseTestContext:
         def __init__(self, user):
@@ -36,15 +22,15 @@ class MutationTestProduct(openIMISGraphQLTestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.user = User.objects.filter(username='admin', i_user__isnull=False).first()
+        cls.user = create_test_interactive_user(username='administo', password='S/pe®Pąßw0rd™')
         super(MutationTestProduct, cls).setUpClass()
-        if not cls.user:
-            cls.user=create_test_interactive_user(username='admin', password='S\/pe®Pąßw0rd™', roles=[1])
         # some test data so as to created contract properly
         cls.user_token = get_token(cls.user, cls.BaseTestContext(user=cls.user))
-        cls.product = Product.objects.filter(code='BCTA0001').first()
+        cls.location = create_test_location('R')
+        cls.program = create_test_program(code="PRG003")
+        cls.product = create_test_product(code='BCTA0001', custom_props={"location": cls.location})
+
     def test_mutation_update_product(self):
-        time_stamp = datetime.datetime.now()
         mutation_raw = """
     mutation ($input: UpdateProductMutationInput!) {
       updateProduct(input: $input) {
@@ -53,7 +39,6 @@ class MutationTestProduct(openIMISGraphQLTestCase):
       }
     }
   """
-        null = None
         variables_param = f"""{{
   "input": {{
     "name": "Basic Cover Tahida Updated",
@@ -112,14 +97,10 @@ class MutationTestProduct(openIMISGraphQLTestCase):
     "maxInstallments": 1,
     "code": "{self.product.code}",
     "locationUuid": "{str(self.product.location.uuid)}",
+    "program": {self.program.idProgram},
     "clientMutationLabel": "Update product Basic Cover Tahida",
     "clientMutationId": "a15498d1-bc77-4516-99d6-23d5d2023d96"
   }}
 }}"""
-  
-        content=self.send_mutation_raw(mutation_raw,  self.user_token, variables_param)     
-        
-        
-  
-  
-  
+
+        self.send_mutation_raw(mutation_raw, self.user_token, variables_param)

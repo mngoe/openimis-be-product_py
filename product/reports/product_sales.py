@@ -4300,12 +4300,14 @@ def product_sales_query(user,
     district_id = int(requested_district_id)
     if district_id != ALL_DISTRICTS:
         district_filters = Q(validity_to__isnull=True) & Q(type="D") & Q(id=district_id)
-        if region_id != ALL_REGIONS:  # The FE pickers allow you to select a district without a region, so additional steps are required
+        if region_id != ALL_REGIONS:
+            # The FE pickers allow you to select a district without a region, so additional steps are required
             district_filters &= Q(parent_id=region_id)
         district = Location.objects.filter(district_filters).first()
         if not district:
             return {"error": "Error - the requested district does not exist"}
-        if region_id == ALL_REGIONS:  # The FE pickers allow you to select a district without a region, so additional steps are required
+        if region_id == ALL_REGIONS:
+            # The FE pickers allow you to select a district without a region, so additional steps are required
             region = district.parent
             region_id = region.id
     product_id = int(requested_product_id)
@@ -4375,12 +4377,19 @@ def product_sales_query(user,
             "product_name": policy["product_name"],
             "value": policy["amount"],
             "effective_date": policy["effective_date"],
-            "product_district": f"{policy['product_code']}-{policy['district_code']}"  # necessary for section jumps in the report
+            # necessary for section jumps in the report
+            "product_district": f"{policy['product_code']}-{policy['district_code']}"
         }
         data.append(report_data_policy)
 
         total_values += policy["amount"]
-        calculate_subtotals(subtotals, policy["amount"], policy["region_code"], policy["district_code"], policy["product_code"])
+        calculate_subtotals(
+            subtotals,
+            policy["amount"],
+            policy["region_code"],
+            policy["district_code"],
+            policy["product_code"]
+        )
 
     # Adding the subtotals to each line to be able to display them on the report
     for line in data:

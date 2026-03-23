@@ -1,6 +1,5 @@
 import datetime
 from gettext import gettext as _
-from operator import or_
 from dataclasses import dataclass
 
 import graphene
@@ -64,7 +63,7 @@ def create_or_update_product(user, data, is_duplicate=False):
     deductibles = extract_deductibles(data)
     ceilings = extract_ceilings(data)
     data["program"] = program_models.Program.objects.filter(idProgram=data["program"]).first()
-    hist_id=None
+    hist_id = None
     incoming_code = data.get('code')
     current_product = Product.objects.filter(uuid=product_uuid).first()
     current_code = current_product.code if current_product else None
@@ -125,7 +124,7 @@ def create_or_update_product(user, data, is_duplicate=False):
         product = Product.objects.get(uuid=product_uuid)
         if product.validity_to:
             raise ValidationError("Cannot update historical data.")
-        hist_id = save_product_history(product,items,services)
+        hist_id = save_product_history(product, items, services)
         for (key, value) in data.items():
             setattr(product, key, value)
     else:
@@ -137,9 +136,9 @@ def create_or_update_product(user, data, is_duplicate=False):
     if conversion_product_uuid is not None:
         product.conversion_product = Product.objects.get(
             uuid=conversion_product_uuid)
-    set_product_details(product.items, 'Item', hist_id, items, user) 
-    set_product_details(product.services,'Service', hist_id, services, user) 
-    set_product_relative_distribution(product, hist_id, relative_prices,user)
+    set_product_details(product.items, 'Item', hist_id, items, user)
+    set_product_details(product.services, 'Service', hist_id, services, user)
+    set_product_relative_distribution(product, hist_id, relative_prices, user)
 
     set_product_deductible_and_ceiling(
         product, ceiling_type, deductibles, ceilings, user
@@ -405,8 +404,8 @@ class DuplicateProductMutation(OpenIMISMutation):
 
         data["audit_user_id"] = user.id_for_audit
 
-        duplicate_items = True #if 'items' not in data else False
-        duplicate_services = True #if 'services' not in data else False
+        duplicate_items = True  # if 'items' not in data else False
+        duplicate_services = True  # if 'services' not in data else False
 
         new_product = create_or_update_product(user, data, is_duplicate=True)
 
