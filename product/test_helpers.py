@@ -1,7 +1,9 @@
 from product.models import Product, ProductService, ProductItem
+from program.test_helpers import create_test_program
 
 
 def create_test_product(code, valid=True, custom_props=None):
+    program = create_test_program(code="CCS", name="Chêque Santé")
     return Product.objects.create(
         **{
             "code": code,
@@ -15,6 +17,7 @@ def create_test_product(code, valid=True, custom_props=None):
             "validity_from": "2019-01-01",
             "validity_to": None if valid else "2019-01-01",
             "audit_user_id": -1,
+            "program": program,
             **(custom_props if custom_props else {})
         }
     )

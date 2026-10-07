@@ -1,7 +1,5 @@
-import json
-
 from django.core.exceptions import PermissionDenied
-from core import ExtendedConnection, prefix_filterset
+from core import ExtendedConnection
 from django.db.models import Q
 import graphene
 from graphene.relay import Node
@@ -31,6 +29,10 @@ from .enums import (
 )
 import datetime
 from program import models as program_models
+
+from core.apps import ENROLMENT_UBA_LINK_TYPE
+from core.uba_filters import has_perms_somewhere
+from location.models import LocationManager
 
 
 class ProductRelativePricesGQLType(graphene.ObjectType):
@@ -224,8 +226,10 @@ class ProductItemOrServiceDefaultValuesGQLType(graphene.ObjectType):
 
     def resolve_default_price_origin(self, info):
         return ProductConfig.default_price_origin
+
     def resolve_default_limit(self, info):
         return ProductConfig.default_limit
+
     def resolve_default_limit_co_insurance_value(self, info):
         return ProductConfig.default_limit_co_insurance_value
 
@@ -275,6 +279,31 @@ class ProductServiceGQLType(DjangoObjectType):
         connection_class = ExtendedConnection
 
 
+def _products_scope(user):
+    """
+    Who may read the products, and which ones.
+
+    The query right held globally opens every product, as before: None, nothing more to
+    filter. Held in the UBA bag by an enrolment officer - someone with an ENROLMENT link on
+    villages - it opens the products they may enrol into: the national ones (no location)
+    and the ones attached to a linked village or to any location above it (the ward, the
+    district, the region). Anybody else is refused.
+    """
+
+
+    if user.has_perms(ProductConfig.gql_query_products_perms):
+        return None
+    if not has_perms_somewhere(user, ProductConfig.gql_query_products_perms, ENROLMENT_UBA_LINK_TYPE):
+        raise PermissionDenied(_("unauthorized"))
+    
+
+    location_ids = LocationManager().uba_location_ids(
+        user._u, ENROLMENT_UBA_LINK_TYPE, include_ancestors=True)
+    if location_ids is None:
+        return Q(location__isnull=True)
+    return Q(location__isnull=True) | Q(location__id__in=location_ids)
+
+
 class Query(graphene.ObjectType):
     products = DjangoFilterConnectionField(
         ProductGQLType,
@@ -294,43 +323,49 @@ class Query(graphene.ObjectType):
     )
 
     def resolve_limit_defaults(self, info):
-        if not info.context.user.has_perms(ProductConfig.gql_query_products_perms):
-            raise PermissionDenied("unauthorized")
+        _products_scope(info.context.user)
         return ProductItemOrServiceDefaultValuesGQLType()
 
     def resolve_page_display_rules(self, info):
-        if not info.context.user.has_perms(ProductConfig.gql_query_products_perms):
-            raise PermissionDenied(_("unauthorized"))
+        _products_scope(info.context.user)
         return PageDisplayRulesGQLType()
 
     def resolve_product(self, info, **kwargs):
-        if not info.context.user.has_perms(ProductConfig.gql_query_products_perms):
-            raise PermissionDenied(_("unauthorized"))
+        scope = _products_scope(info.context.user)
         if kwargs.get("id", None) is not None:
-            return Node.get_node_from_global_id(info, kwargs["id"])
+            product = Node.get_node_from_global_id(info, kwargs["id"])
+            if scope is not None and product is not None \
+                    and not Product.objects.filter(scope, id=product.id).exists():
+                raise PermissionDenied(_("unauthorized"))
+            return product
         elif kwargs.get("uuid", None) is not None:
-            return Product.objects.get(uuid=kwargs["uuid"])
+            return Product.objects.filter(*([scope] if scope is not None else [])).get(uuid=kwargs["uuid"])
 
         return None
 
     def resolve_products(
         self, info, location=None, search=None, show_history=False, **kwargs
     ):
-        if not info.context.user.has_perms(ProductConfig.gql_query_products_perms):
-            raise PermissionDenied(_("unauthorized"))
+        scope = _products_scope(info.context.user)
 
         qs = Product.objects
+        if scope is not None:
+            qs = qs.filter(scope)
         user_id = info.context.user._u.id
         today = datetime.datetime.now()
         programs = program_models.Program.objects.filter(user__id=user_id).filter(
-                validityDateFrom__lte=today).filter(
-                Q(validityDateTo__isnull=True) | Q(validityDateTo__gte=today))
+            validityDateFrom__lte=today
+        ).filter(
+            Q(validityDateTo__isnull=True) | Q(validityDateTo__gte=today)
+        )
         if not show_history:
             qs = qs.filter(*filter_validity(**kwargs))
 
         if search is not None:
-            qs = qs.filter(Q(name__icontains=search) |
-                           Q(code__icontains=search))
+            qs = qs.filter(
+                Q(name__icontains=search)
+                | Q(code__icontains=search)
+            )
 
         if location is not None:
             from location.models import Location
@@ -346,7 +381,7 @@ class Query(graphene.ObjectType):
         # Consider only the locations user is configured for
         from location.models import Location
         from location.schema import LocationManager
-        qs = LocationManager().build_user_location_filter_query(info.context.user._u, queryset = qs)
+        qs = LocationManager().build_user_location_filter_query(info.context.user._u, queryset=qs)
 
         return gql_optimizer.query(qs, info)
 
