@@ -1,7 +1,5 @@
-import json
-
 from django.core.exceptions import PermissionDenied
-from core import ExtendedConnection, prefix_filterset
+from core import ExtendedConnection
 from django.db.models import Q
 import graphene
 from graphene.relay import Node
@@ -224,8 +222,10 @@ class ProductItemOrServiceDefaultValuesGQLType(graphene.ObjectType):
 
     def resolve_default_price_origin(self, info):
         return ProductConfig.default_price_origin
+
     def resolve_default_limit(self, info):
         return ProductConfig.default_limit
+
     def resolve_default_limit_co_insurance_value(self, info):
         return ProductConfig.default_limit_co_insurance_value
 
@@ -323,14 +323,18 @@ class Query(graphene.ObjectType):
         user_id = info.context.user._u.id
         today = datetime.datetime.now()
         programs = program_models.Program.objects.filter(user__id=user_id).filter(
-                validityDateFrom__lte=today).filter(
-                Q(validityDateTo__isnull=True) | Q(validityDateTo__gte=today))
+            validityDateFrom__lte=today
+        ).filter(
+            Q(validityDateTo__isnull=True) | Q(validityDateTo__gte=today)
+        )
         if not show_history:
             qs = qs.filter(*filter_validity(**kwargs))
 
         if search is not None:
-            qs = qs.filter(Q(name__icontains=search) |
-                           Q(code__icontains=search))
+            qs = qs.filter(
+                Q(name__icontains=search)
+                | Q(code__icontains=search)
+            )
 
         if location is not None:
             from location.models import Location
@@ -346,7 +350,7 @@ class Query(graphene.ObjectType):
         # Consider only the locations user is configured for
         from location.models import Location
         from location.schema import LocationManager
-        qs = LocationManager().build_user_location_filter_query(info.context.user._u, queryset = qs)
+        qs = LocationManager().build_user_location_filter_query(info.context.user._u, queryset=qs)
 
         return gql_optimizer.query(qs, info)
 

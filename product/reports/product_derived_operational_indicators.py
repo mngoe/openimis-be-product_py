@@ -1684,7 +1684,12 @@ template = """
                             "elementType": "table_text",
                             "id": 258,
                             "width": 42,
-                            "content": "${product_code} + '-'+ ${product_name} + ' - National' if ${location_type} == 'N' else (${product_code} + ' - '+ ${product_name} + ' in ' + ${location_code} + ' - ' + ${location_name})",
+                            "content": (
+                                "${product_code} + '-'+ ${product_name} + ' - National' "
+                                "if ${location_type} == 'N' else ("
+                                "${product_code} + ' - '+ ${product_name} + ' in ' +"
+                                "${location_code} + ' - ' + ${location_name})"
+                            )
                             "eval": true,
                             "colspan": "9",
                             "styleId": "286",
@@ -3620,16 +3625,16 @@ def fetch_premium_data(search_filters: Q, start_month: AdDate, end_month: AdDate
         if start_month < expiry_date <= end_month:
             multiplicator = date_difference_or_1(premium["greatest_date_pay_start"], expiry_date)
             denominator = date_difference_or_1(greatest_date_pay_effective, expiry_date)
-            total += multiplicator * (amount/denominator)
+            total += multiplicator * (amount / denominator)
         elif start_month <= greatest_date_pay_effective <= end_month:
             multiplicator = end_month.day + 1 - greatest_date_pay_effective.day
             denominator = date_difference_or_1(greatest_date_pay_effective, expiry_date)
-            total += multiplicator * (amount/denominator)
+            total += multiplicator * (amount / denominator)
         elif expiry_date > end_month and premium["effective_date"] < start_month and premium["pay_date"] < start_month:
             multiplicator = end_month.day
             expiry_date_minus_1_day = expiry_date - timedelta(days=1)
             denominator = date_difference_or_1(greatest_date_pay_effective, expiry_date_minus_1_day)
-            total += multiplicator * (amount/denominator)
+            total += multiplicator * (amount / denominator)
 
     return {
         DATA_ALLOCATED: total,
@@ -3642,8 +3647,8 @@ def fetch_claim_data(search_filters: Q, start_month: AdDate, end_month: AdDate):
     promptness_date_differences = []
 
     search_filters &= (
-            Q(date_from__range=[start_month, end_month])
-            | Q(batch_run__run_date__range=[start_month, end_month])
+        Q(date_from__range=[start_month, end_month])
+        | Q(batch_run__run_date__range=[start_month, end_month])
     )
 
     claims = Claim.objects.filter(search_filters)
@@ -3723,7 +3728,8 @@ def product_derived_operational_indicators_query(user,
                                                  requested_product_id=DEFAULT_PRODUCT,
                                                  **kwargs):
     """
-    /!\ There are a lot of differences between the documentation on readthedocs and the actual report (if you manage to generate one).
+    /! There are a lot of differences between the documentation on readthedocs and the actual report
+    (if you manage to generate one).
     So, some decisions had to be made:
     - In the legacy version, 2 stored procedures were called uspSSRSDerivedIndicators1 and uspSSRSDerivedIndicators2.
     They handled data that looked similar but was different in many places. Merging the results of these two stored
@@ -3772,22 +3778,24 @@ def product_derived_operational_indicators_query(user,
                                & Q(policy__status__gt=1)  # All the non-idle policies
                                & Q(policy__product_id=product.id))
 
-    default_claim_filters = (Q(validity_to__isnull=True)
-                             & (
-                                 Q(items__isnull=True)
-                                 | Q(items__validity_to__isnull=True)
-                             )
-                             & (
-                                Q(services__isnull=True)
-                                | Q(services__validity_to__isnull=True)
-                             )
-                             & (
-                                Q(services__product_id=product_id)
-                                | Q(items__product_id=product_id)
-                             )
-                             & Q(insuree__validity_to__isnull=True)
-                             & Q(insuree__family__validity_to__isnull=True)
-                             & Q(health_facility__validity_to__isnull=True))
+    default_claim_filters = (
+        Q(validity_to__isnull=True)
+        & (
+            Q(items__isnull=True)
+            | Q(items__validity_to__isnull=True)
+        )
+        & (
+            Q(services__isnull=True)
+            | Q(services__validity_to__isnull=True)
+        )
+        & (
+            Q(services__product_id=product_id)
+            | Q(items__product_id=product_id)
+        )
+        & Q(insuree__validity_to__isnull=True)
+        & Q(insuree__family__validity_to__isnull=True)
+        & Q(health_facility__validity_to__isnull=True)
+    )
 
     default_policy_filters = (Q(validity_to__isnull=True)
                               & ~Q(status=Policy.STATUS_IDLE)
