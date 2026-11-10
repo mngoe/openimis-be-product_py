@@ -5,6 +5,7 @@ import graphene
 from graphene.relay import Node
 from django.utils.translation import gettext_lazy
 from graphene_django import DjangoObjectType
+from core.gql.scoped_object_type import ScopedQuerysetMixin
 from graphene_django.filter import DjangoFilterConnectionField
 import graphene_django_optimizer as gql_optimizer
 
@@ -52,7 +53,7 @@ def period_type_to_number(period_type):
         return None
 
 
-class ProductGQLType(DjangoObjectType):
+class ProductGQLType(ScopedQuerysetMixin, DjangoObjectType):
     ceiling_interpretation = graphene.Field(CeilingInterpretationEnum)
     relative_prices = graphene.NonNull(
         graphene.List(ProductRelativePricesGQLType))
@@ -237,17 +238,13 @@ class ProductItemOrServiceDefaultValuesGQLType(graphene.ObjectType):
         return ProductConfig.default_limit_fixed_value
 
 
-class ProductItemGQLType(DjangoObjectType):
+class ProductItemGQLType(ScopedQuerysetMixin, DjangoObjectType):
     ceiling_exclusion_adult = graphene.Field(CeilingExclusionEnum)
     ceiling_exclusion_child = graphene.Field(CeilingExclusionEnum)
     limitation_type = graphene.Field(LimitTypeEnum)
     limitation_type_r = graphene.Field(LimitTypeEnum)
     limitation_type_e = graphene.Field(LimitTypeEnum)
     price_origin = graphene.Field(PriceOriginEnum)
-
-    @classmethod
-    def get_queryset(cls, queryset, info):
-        return queryset.filter()
 
     class Meta:
         model = ProductItem
@@ -258,17 +255,13 @@ class ProductItemGQLType(DjangoObjectType):
         connection_class = ExtendedConnection
 
 
-class ProductServiceGQLType(DjangoObjectType):
+class ProductServiceGQLType(ScopedQuerysetMixin, DjangoObjectType):
     ceiling_exclusion_adult = graphene.Field(CeilingExclusionEnum)
     ceiling_exclusion_child = graphene.Field(CeilingExclusionEnum)
     limitation_type = graphene.Field(LimitTypeEnum)
     limitation_type_r = graphene.Field(LimitTypeEnum)
     limitation_type_e = graphene.Field(LimitTypeEnum)
     price_origin = graphene.Field(PriceOriginEnum)
-
-    @classmethod
-    def get_queryset(cls, queryset, info):
-        return queryset.filter()
 
     class Meta:
         model = ProductService
@@ -339,7 +332,9 @@ class Query(graphene.ObjectType):
                 raise PermissionDenied(_("unauthorized"))
             return product
         elif kwargs.get("uuid", None) is not None:
-            return Product.objects.filter(*([scope] if scope is not None else [])).get(uuid=kwargs["uuid"])
+            # row security: Product.get_queryset (location scope) on top of the UBA scope
+            return Product.get_queryset(Product.objects.all(), info.context.user) \
+                .filter(*([scope] if scope is not None else [])).get(uuid=kwargs["uuid"])
 
         return None
 
