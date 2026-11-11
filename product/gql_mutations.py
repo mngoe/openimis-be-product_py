@@ -54,6 +54,11 @@ def create_or_update_product(user, data, is_duplicate=False):
     client_mutation_id = data.pop("client_mutation_id", None)
     data.pop("client_mutation_label", None)
     product_uuid = data.pop("uuid", None)
+    # row security: a write cannot reach a product its author cannot read
+    scoped_products = Product.get_queryset(Product.objects.all(), user)
+    current_product = scoped_products.filter(uuid=product_uuid).first() if product_uuid else None
+    if product_uuid and current_product is None and not is_duplicate:
+        raise PermissionDenied(_("unauthorized"))
     location_uuid = data.pop("location_uuid", None)
     conversion_product_uuid = data.pop("conversion_product_uuid", None)
     relative_prices = data.pop("relative_prices", None)
@@ -65,7 +70,6 @@ def create_or_update_product(user, data, is_duplicate=False):
     data["program"] = program_models.Program.objects.filter(idProgram=data["program"]).first()
     hist_id = None
     incoming_code = data.get('code')
-    current_product = Product.objects.filter(uuid=product_uuid).first()
     current_code = current_product.code if current_product else None
 
     if current_code != incoming_code:
@@ -121,7 +125,7 @@ def create_or_update_product(user, data, is_duplicate=False):
     if data["date_from"] > data["date_to"]:
         raise ValueError("date_from must be before date_to")
     if product_uuid:
-        product = Product.objects.get(uuid=product_uuid)
+        product = scoped_products.get(uuid=product_uuid)
         if product.validity_to:
             raise ValidationError("Cannot update historical data.")
         hist_id = save_product_history(product, items, services)
@@ -131,7 +135,7 @@ def create_or_update_product(user, data, is_duplicate=False):
         product = Product.objects.create(**data)
 
     if location_uuid is not None:
-        product.location = Location.objects.get(uuid=location_uuid)
+        product.location = Location.get_queryset(Location.objects.all(), user).get(uuid=location_uuid)
 
     if conversion_product_uuid is not None:
         product.conversion_product = Product.objects.get(
@@ -401,6 +405,9 @@ class DuplicateProductMutation(OpenIMISMutation):
         if not user.has_perms(perms):
             raise PermissionDenied(_("unauthorized"))
         current_uuid = data.pop("uuid") if "uuid" in data else None
+        # row security: the source must be a product its author can read
+        source_product = Product.get_queryset(Product.objects.all(), user) \
+            .get(uuid=current_uuid, validity_to__isnull=True)
 
         data["audit_user_id"] = user.id_for_audit
 
@@ -410,8 +417,7 @@ class DuplicateProductMutation(OpenIMISMutation):
         new_product = create_or_update_product(user, data, is_duplicate=True)
 
         if duplicate_items:
-            new_product_items = ProductItem.objects.filter(product=Product.objects.get(uuid=current_uuid,
-                                                           validity_to__isnull=True))
+            new_product_items = ProductItem.objects.filter(product=source_product)
             for item in new_product_items:
                 # create a new instance by setting pk = None
                 item.pk = None
@@ -419,8 +425,7 @@ class DuplicateProductMutation(OpenIMISMutation):
                 item.save()
 
         if duplicate_services:
-            new_product_services = ProductService.objects.filter(product=Product.objects.get(uuid=current_uuid,
-                                                                 validity_to__isnull=True))
+            new_product_services = ProductService.objects.filter(product=source_product)
             for service in new_product_services:
                 # create a new instance by setting pk = None
                 service.pk = None
@@ -470,7 +475,8 @@ class DeleteProductMutation(OpenIMISMutation):
         errors = []
 
         for uuid in data["uuids"]:
-            product = Product.objects.filter(uuid=uuid).first()
+            # row security: out of scope reads as "does not exist"
+            product = Product.get_queryset(Product.objects.all(), user).filter(uuid=uuid).first()
             if product is None:
                 errors.append(
                     {
@@ -478,7 +484,7 @@ class DeleteProductMutation(OpenIMISMutation):
                         "list": [
                             {
                                 "message": _("product.validation.id_does_not_exist")
-                                % {"id", uuid}
+                                % {"id": uuid}
                             }
                         ],
                     }

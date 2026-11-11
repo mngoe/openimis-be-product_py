@@ -2,10 +2,16 @@ import uuid
 from django.utils.translation import gettext_lazy
 from django.db import models
 from program import models as program_models
-from core.models import VersionedModel, ObjectMutation, UUIDModel, MutationLog
+from core.models import VersionedModel, ObjectMutation, UUIDModel, MutationLog, LocationScope, ParentScope
 
 
 class Product(VersionedModel):
+    # OP-2029: versions carry a business meaning, a validity date picks the one valid then.
+    business_versioned = True
+    # Row security: products of the user's locations (any level, as resolve_products
+    # did), national products (no location) staying visible to everyone.
+    row_scope = LocationScope("location", loc_types=("R", "D", "W", "V"))
+
     id = models.AutoField(db_column="ProdID", primary_key=True)
     uuid = models.CharField(
         db_column="ProdUUID", max_length=36, default=uuid.uuid4, unique=True
@@ -479,6 +485,9 @@ LIMIT_CHOICES = (("F", gettext_lazy("Fixed")), ("C", gettext_lazy("Co-insurance"
 
 
 class ProductItem(VersionedModel, ProductItemOrService):
+    business_versioned = True
+    row_scope = ParentScope("product")
+
     id = models.AutoField(db_column="ProdItemID", primary_key=True)
     product = models.ForeignKey(
         Product, db_column="ProdID", on_delete=models.DO_NOTHING, related_name="items"
@@ -574,6 +583,9 @@ class ProductItem(VersionedModel, ProductItemOrService):
 
 
 class ProductService(VersionedModel, ProductItemOrService):
+    business_versioned = True
+    row_scope = ParentScope("product")
+
     id = models.AutoField(db_column="ProdServiceID", primary_key=True)
     product = models.ForeignKey(
         Product,

@@ -5,7 +5,10 @@ import graphene
 from graphene.relay import Node
 from django.utils.translation import gettext_lazy
 from graphene_django import DjangoObjectType
-from graphene_django.filter import DjangoFilterConnectionField
+from core.gql import legacy_row_filters, row_filter_arguments
+from core.gql.scoped_object_type import ScopedQuerysetMixin
+from core.models import Audits, Validity
+from core.schema import OrderedDjangoFilterConnectionField
 import graphene_django_optimizer as gql_optimizer
 
 from .models import Product, ProductItem, ProductService
@@ -18,7 +21,6 @@ from .gql_mutations import (
 )
 from .apps import ProductConfig
 from django.utils.translation import gettext as _
-from core import filter_validity
 from .enums import (
     CareTypeEnum,
     CeilingExclusionEnum,
@@ -29,6 +31,10 @@ from .enums import (
 )
 import datetime
 from program import models as program_models
+
+from core.apps import ENROLMENT_UBA_LINK_TYPE
+from core.uba_filters import has_perms_somewhere
+from location.models import LocationManager
 
 
 class ProductRelativePricesGQLType(graphene.ObjectType):
@@ -48,7 +54,7 @@ def period_type_to_number(period_type):
         return None
 
 
-class ProductGQLType(DjangoObjectType):
+class ProductGQLType(ScopedQuerysetMixin, DjangoObjectType):
     ceiling_interpretation = graphene.Field(CeilingInterpretationEnum)
     relative_prices = graphene.NonNull(
         graphene.List(ProductRelativePricesGQLType))
@@ -233,17 +239,13 @@ class ProductItemOrServiceDefaultValuesGQLType(graphene.ObjectType):
         return ProductConfig.default_limit_fixed_value
 
 
-class ProductItemGQLType(DjangoObjectType):
+class ProductItemGQLType(ScopedQuerysetMixin, DjangoObjectType):
     ceiling_exclusion_adult = graphene.Field(CeilingExclusionEnum)
     ceiling_exclusion_child = graphene.Field(CeilingExclusionEnum)
     limitation_type = graphene.Field(LimitTypeEnum)
     limitation_type_r = graphene.Field(LimitTypeEnum)
     limitation_type_e = graphene.Field(LimitTypeEnum)
     price_origin = graphene.Field(PriceOriginEnum)
-
-    @classmethod
-    def get_queryset(cls, queryset, info):
-        return queryset.filter()
 
     class Meta:
         model = ProductItem
@@ -254,17 +256,13 @@ class ProductItemGQLType(DjangoObjectType):
         connection_class = ExtendedConnection
 
 
-class ProductServiceGQLType(DjangoObjectType):
+class ProductServiceGQLType(ScopedQuerysetMixin, DjangoObjectType):
     ceiling_exclusion_adult = graphene.Field(CeilingExclusionEnum)
     ceiling_exclusion_child = graphene.Field(CeilingExclusionEnum)
     limitation_type = graphene.Field(LimitTypeEnum)
     limitation_type_r = graphene.Field(LimitTypeEnum)
     limitation_type_e = graphene.Field(LimitTypeEnum)
     price_origin = graphene.Field(PriceOriginEnum)
-
-    @classmethod
-    def get_queryset(cls, queryset, info):
-        return queryset.filter()
 
     class Meta:
         model = ProductService
@@ -275,11 +273,36 @@ class ProductServiceGQLType(DjangoObjectType):
         connection_class = ExtendedConnection
 
 
+def _products_scope(user):
+    """
+    Who may read the products, and which ones.
+
+    The query right held globally opens every product, as before: None, nothing more to
+    filter. Held in the UBA bag by an enrolment officer - someone with an ENROLMENT link on
+    villages - it opens the products they may enrol into: the national ones (no location)
+    and the ones attached to a linked village or to any location above it (the ward, the
+    district, the region). Anybody else is refused.
+    """
+
+
+    if user.has_perms(ProductConfig.gql_query_products_perms):
+        return None
+    if not has_perms_somewhere(user, ProductConfig.gql_query_products_perms, ENROLMENT_UBA_LINK_TYPE):
+        raise PermissionDenied(_("unauthorized"))
+    
+
+    location_ids = LocationManager().uba_location_ids(
+        user._u, ENROLMENT_UBA_LINK_TYPE, include_ancestors=True)
+    if location_ids is None:
+        return Q(location__isnull=True)
+    return Q(location__isnull=True) | Q(location__id__in=location_ids)
+
+
 class Query(graphene.ObjectType):
-    products = DjangoFilterConnectionField(
+    products = OrderedDjangoFilterConnectionField(
         ProductGQLType,
         location=graphene.Int(),
-        show_history=graphene.Boolean(),
+        **row_filter_arguments(),
         search=graphene.String(description=gettext_lazy(
             "Search in `name` & `code`")),
     )
@@ -294,32 +317,36 @@ class Query(graphene.ObjectType):
     )
 
     def resolve_limit_defaults(self, info):
-        if not info.context.user.has_perms(ProductConfig.gql_query_products_perms):
-            raise PermissionDenied("unauthorized")
+        _products_scope(info.context.user)
         return ProductItemOrServiceDefaultValuesGQLType()
 
     def resolve_page_display_rules(self, info):
-        if not info.context.user.has_perms(ProductConfig.gql_query_products_perms):
-            raise PermissionDenied(_("unauthorized"))
+        _products_scope(info.context.user)
         return PageDisplayRulesGQLType()
 
     def resolve_product(self, info, **kwargs):
-        if not info.context.user.has_perms(ProductConfig.gql_query_products_perms):
-            raise PermissionDenied(_("unauthorized"))
+        scope = _products_scope(info.context.user)
         if kwargs.get("id", None) is not None:
-            return Node.get_node_from_global_id(info, kwargs["id"])
+            product = Node.get_node_from_global_id(info, kwargs["id"])
+            if scope is not None and product is not None \
+                    and not Product.objects.filter(scope, id=product.id).exists():
+                raise PermissionDenied(_("unauthorized"))
+            return product
         elif kwargs.get("uuid", None) is not None:
-            return Product.objects.get(uuid=kwargs["uuid"])
+            # row security: Product.get_queryset (location scope) on top of the UBA scope
+            return Product.get_queryset(Product.objects.all(), info.context.user) \
+                .filter(*([scope] if scope is not None else [])).get(uuid=kwargs["uuid"])
 
         return None
 
     def resolve_products(
         self, info, location=None, search=None, show_history=False, **kwargs
     ):
-        if not info.context.user.has_perms(ProductConfig.gql_query_products_perms):
-            raise PermissionDenied(_("unauthorized"))
+        scope = _products_scope(info.context.user)
 
         qs = Product.objects
+        if scope is not None:
+            qs = qs.filter(scope)
         user_id = info.context.user._u.id
         today = datetime.datetime.now()
         programs = program_models.Program.objects.filter(user__id=user_id).filter(
@@ -327,8 +354,13 @@ class Query(graphene.ObjectType):
         ).filter(
             Q(validityDateTo__isnull=True) | Q(validityDateTo__gte=today)
         )
-        if not show_history:
-            qs = qs.filter(*filter_validity(**kwargs))
+        # validity / audits are applied by Product.get_queryset through ProductGQLType
+        # (OP-2029); showHistory keeps its legacy meaning: no validity filter at all,
+        # deleted products and history copies included. isDeleted overrides it.
+        legacy_row_filters(
+            info, {**kwargs, "show_history": show_history},
+            validity=Validity.ALL if show_history else Validity.NOW,
+            audits=Audits.ALL if show_history else None)
 
         if search is not None:
             qs = qs.filter(
