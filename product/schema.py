@@ -5,8 +5,10 @@ import graphene
 from graphene.relay import Node
 from django.utils.translation import gettext_lazy
 from graphene_django import DjangoObjectType
+from core.gql import legacy_row_filters, row_filter_arguments
 from core.gql.scoped_object_type import ScopedQuerysetMixin
-from graphene_django.filter import DjangoFilterConnectionField
+from core.models import Audits, Validity
+from core.schema import OrderedDjangoFilterConnectionField
 import graphene_django_optimizer as gql_optimizer
 
 from .models import Product, ProductItem, ProductService
@@ -19,7 +21,6 @@ from .gql_mutations import (
 )
 from .apps import ProductConfig
 from django.utils.translation import gettext as _
-from core import filter_validity
 from .enums import (
     CareTypeEnum,
     CeilingExclusionEnum,
@@ -298,10 +299,10 @@ def _products_scope(user):
 
 
 class Query(graphene.ObjectType):
-    products = DjangoFilterConnectionField(
+    products = OrderedDjangoFilterConnectionField(
         ProductGQLType,
         location=graphene.Int(),
-        show_history=graphene.Boolean(),
+        **row_filter_arguments(),
         search=graphene.String(description=gettext_lazy(
             "Search in `name` & `code`")),
     )
@@ -353,8 +354,13 @@ class Query(graphene.ObjectType):
         ).filter(
             Q(validityDateTo__isnull=True) | Q(validityDateTo__gte=today)
         )
-        if not show_history:
-            qs = qs.filter(*filter_validity(**kwargs))
+        # validity / audits are applied by Product.get_queryset through ProductGQLType
+        # (OP-2029); showHistory keeps its legacy meaning: no validity filter at all,
+        # deleted products and history copies included. isDeleted overrides it.
+        legacy_row_filters(
+            info, {**kwargs, "show_history": show_history},
+            validity=Validity.ALL if show_history else Validity.NOW,
+            audits=Audits.ALL if show_history else None)
 
         if search is not None:
             qs = qs.filter(
